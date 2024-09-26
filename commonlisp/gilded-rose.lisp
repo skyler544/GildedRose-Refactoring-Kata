@@ -61,6 +61,49 @@
   (with-slots (name quality sell-in) i
     (format nil "~a, ~a, ~a" name sell-in quality)))
 
+(defun increment-quality (quality &optional (delta 1))
+  (if (<= quality 50)
+      (min (+ quality delta) 50)
+      quality))
+
+(defun decrement-quality (quality &optional (delta 1))
+  (if (> quality 0)
+      (max (- quality delta) 0)
+      quality))
+
+(defun starts-with-p (prefix name)
+  (when (>= (length name) (length prefix))
+    (string= (subseq name 0 (length prefix)) prefix)))
+
+(defmethod update-item-quality-base-case ((i item))
+  (with-slots (name quality sell-in) i
+    (setf sell-in (- sell-in 1))
+    (setf quality (decrement-quality quality (if (< sell-in 0) 2 1)))))
+
+(defmethod update-item-quality-sulfuras ((i item))
+  (with-slots (name quality sell-in) i
+    (setf sell-in sell-in)
+    (setf quality 80)))
+
+(defmethod update-item-quality-aged-brie ((i item))
+  (with-slots (name quality sell-in) i
+    (setf sell-in (- sell-in 1))
+    (setf quality (increment-quality quality (if (< sell-in 0) 2 1)))))
+
+(defmethod update-item-quality-backstage-pass ((i item))
+  (with-slots (name quality sell-in) i
+    (cond ((< sell-in 0) (setf quality 0))
+          ((< sell-in 5) (setf quality (increment-quality quality 3)))
+          ((< sell-in 10) (setf quality (increment-quality quality 2)))
+          (t (setf quality (increment-quality quality))))
+    (setf sell-in (- sell-in 1))))
+
+(defmethod update-item-quality-conjured ((i item))
+  (with-slots (name quality sell-in) i
+    (setf sell-in (- sell-in 1))
+    (setf quality (decrement-quality quality (if (< sell-in 0) 4 2)))))
+
+
 ;;; Class gilded-rose
 
 (defclass gilded-rose ()
@@ -69,35 +112,21 @@
 (defmethod update-quality ((gr gilded-rose))
   (with-slots (items) gr
     (dotimes (i (length items))
-      (with-slots (name quality sell-in)
-          (elt items i)
-        (if (and (not (equalp name "Aged Brie"))
-                 (not (equalp name "Backstage passes to a TAFKAL80ETC concert")))
-            (if (> quality 0)
-                (if (not (equalp name "Sulfuras, Hand of Ragnaros"))
-                    (setf quality (- quality 1))))
-          (when (< quality 50)
-            (setf quality (+ quality 1))
-            (when (equalp name "Backstage passes to a TAFKAL80ETC concert")
-              (if (< sell-in 11)
-                  (if (< quality 50)
-                      (setf quality (+ quality 1))))
-              (if (< sell-in 6)
-                  (if (< quality 50)
-                      (setf quality (+ quality 1)))))))
-
-        (if (not (equalp name "Sulfuras, Hand of Ragnaros"))
-            (setf sell-in (- sell-in 1)))
-
-        (if (< sell-in 0)
-            (if (not (equalp name "Aged Brie"))
-                (if (not (equalp name "Backstage passes to a TAFKAL80ETC concert"))
-                    (if (> quality 0)
-                        (if (not (equalp name "Sulfuras, Hand of Ragnaros"))
-                            (setf quality (- quality 1))))
-                  (setf quality (- quality quality)))
-              (if (< quality 50)
-                  (setf quality (+ quality 1)))))))))
+      (let ((product (elt items i)))
+        (with-slots (name quality sell-in) product
+          (cond ((equalp "Aged Brie" name)
+                 (update-item-quality-aged-brie
+                  product))
+                ((starts-with-p "Backstage" name)
+                 (update-item-quality-backstage-pass
+                  product))
+                ((starts-with-p "Sulfuras" name)
+                 (update-item-quality-sulfuras
+                  product))
+                ((starts-with-p "Conjured" name)
+                 (update-item-quality-conjured
+                  product))
+                (t (update-item-quality-base-case product))))))))
 
 ;;; Example
 
@@ -111,7 +140,6 @@
                          ("Backstage passes to a TAFKAL80ETC concert" 15 20)
                          ("Backstage passes to a TAFKAL80ETC concert" 10 49)
                          ("Backstage passes to a TAFKAL80ETC concert"  5 49)
-                         ;; this conjured item does not work properly yet
                          ("Conjured Mana Cake"                         3  6)))
          (items (loop :for (name sell-in quality) :in descriptions
                       :collect (make-instance 'item
